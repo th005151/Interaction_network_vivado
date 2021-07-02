@@ -28,8 +28,8 @@ typedef ap_uint<16> index_t;
 #define N_FEATURES 3
 #define E_FEATURES 1 
 //graph_nets simple example:
-#define N_NODES_MAX 7168 //28 112
-#define N_EDGES_MAX 9472 //37 148 
+#define N_NODES_MAX 28 //28 112
+#define N_EDGES_MAX 37 //37 148 
 
 //hls-fpga-machine-learning insert layer-config
 
