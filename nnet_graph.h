@@ -186,16 +186,17 @@ namespace nnet {
     // if(CONFIG_T::io_stream){
     //   #pragma HLS STREAM variable=receivers
     //   #pragma HLS STREAM variable=senders
-    // }
-
-	//#pragma HLS ARRAY_PARTITION variable=IsInit dim=1 complete
+	  
+    // Original Reset (Comment for Design 2,3,4)
     // for(int i = 0; i < CONFIG_T::n_node; i++){
     //   for(int j = 0; j < CONFIG_T::n_out; j++){
 	//       aggregation[i][j] = 0;
     //   }
     // }
+	  // Flag for New Reset(Add for Design 2,3,4)
     ap_uint<CONFIG_T::n_node> IsInit = 0;
-	//bool IsInit[CONFIG_T::n_node] = {0};
+	
+	  // Dataflow Pragma for Design 4(Add for Design 4)
   #pragma HLS DATAFLOW
 	res_T aggregation_tmp[CONFIG_T::n_node][CONFIG_T::n_out];
 	#pragma HLS ARRAY_PARTITION variable=aggregation_tmp complete dim=0
@@ -241,7 +242,13 @@ namespace nnet {
       }else{
 	nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config3>(effects2, effects[i], core_edge_w3, core_edge_b3);
       }
-
+	    //Original Aggregation(Comment for Design 2,3,4)
+	// for(int j = 0; j < CONFIG_T::n_out; j++){
+	// 	aggregation[r][j] += effects[i][j];
+	// }
+	    
+	    
+//Original Aggregation Storage (Comment for Design 3,4)
 	// for(int j = 0; j < CONFIG_T::n_out; j++){
 	// 	if(IsInit[r]){
 	// 		aggregation[r][j] += effects[i][j];
@@ -251,7 +258,7 @@ namespace nnet {
 	// 		IsInit[r] = 1;
 	// 	}
 	// }
-
+//Use Local Register to Store Results(Add for Design 3,4)
 		for(int j = 0; j < CONFIG_T::n_out; j++){
 			if(IsInit[r]){
 				aggregation_tmp[r][j] += effects[i][j];
@@ -264,7 +271,7 @@ namespace nnet {
 
 
     }
-
+// Store Local Result Back to Memory(Add for Design 3,4)
 	for(int i = 0; i<CONFIG_T::n_node; i++){
 		for(int j = 0; j < CONFIG_T::n_out; j++){
       #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
