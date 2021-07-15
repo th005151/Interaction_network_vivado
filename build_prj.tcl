@@ -5,7 +5,7 @@ array set opt {
   reset      1
   csim       1
   synth      1
-  cosim      1
+  cosim      0
   validation 1
   export     0
   vsynth     0
@@ -50,9 +50,9 @@ set CSIM_RESULTS "./tb_data/csim_results.log"
 set RTL_COSIM_RESULTS "./tb_data/rtl_cosim_results.log"
 
 if {$opt(reset)} { 
-  open_project -reset design4
+  open_project -reset design5
 } else {
-  open_project design4
+  open_project design5
 }
 set_top myproject
 add_files myproject.cpp -cflags "-std=c++0x"
@@ -64,14 +64,17 @@ add_files -tb tb_output_edge_predictions.dat
 add_files -tb myproject_test.cpp -cflags "-std=c++0x"
 add_files -tb weights
 add_files -tb tb_data
+
 if {$opt(reset)} {
-  open_solution -reset "solution5"
+  open_solution -reset "solution2"
 } else {
-  open_solution "solution5"
+  open_solution "solution2"
 }
 catch {config_array_partition -maximum_size 16384}
+
 set_part {xcku115-flvb2104-2-i}
-create_clock -period 5 -name default
+create_clock -period 10 -name default
+
 
 
 if {$opt(csim)} {
@@ -85,7 +88,7 @@ if {$opt(csim)} {
 if {$opt(synth)} {
   puts "***** C/RTL SYNTHESIS *****"
   set time_start [clock clicks -milliseconds]
-  csynth_design
+  csynth_design 
   set time_end [clock clicks -milliseconds]
   report_time "C/RTL SYNTHESIS" $time_start $time_end
 }
@@ -122,7 +125,7 @@ if {$opt(export)} {
 
 if {$opt(vsynth)} {
   puts "***** VIVADO SYNTHESIS *****"
-  if {[file exist design4/solution5/syn/vhdl]} {
+  if {[file exist design5/solution2/syn/vhdl]} {
     set time_start [clock clicks -milliseconds]
     exec vivado -mode batch -source vivado_synth.tcl >@ stdout
     set time_end [clock clicks -milliseconds]

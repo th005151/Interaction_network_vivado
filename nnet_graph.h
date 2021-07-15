@@ -25,6 +25,7 @@
 #include "nnet_activation.h"
 #include "nnet_conv.h"
 #include "hls_stream.h"
+#include "nnet_merge.h"
 #include <math.h>
 
 namespace nnet {
@@ -166,43 +167,126 @@ namespace nnet {
     }
   }
 
+template<class data_T, int size1, int size2>
+void replicate(
+  data_T     IN  [size1][size2],
+  data_T     OUT1[size1][size2],
+  data_T     OUT2[size1][size2],
+  data_T     OUT3[size1][size2],
+  data_T     OUT4[size1][size2]
+){
+	#pragma HLS function_instantiate variable=IN
+	#pragma HLS INLINE off
+	#pragma HLS ARRAY_PARTITION variable=OUT1 complete dim=0
+	#pragma HLS ARRAY_PARTITION variable=OUT2 complete dim=0
+	#pragma HLS ARRAY_PARTITION variable=OUT3 complete dim=0
+	#pragma HLS ARRAY_PARTITION variable=OUT4 complete dim=0
+
+	#pragma HLS pipeline
+	for(int i=0; i<size1; i++){
+		for(int j=0; j<size2; j++){
+			
+			OUT1[i][j] =  IN[i][j];
+			OUT2[i][j] =  IN[i][j];
+			OUT3[i][j] =  IN[i][j];
+			OUT4[i][j] =  IN[i][j];
+		}
+	}
+
+
+}
+
+template<class data_T, class res_T, typename CONFIG_T>
+void merge_relation(
+  data_T     effects_tmp[4][CONFIG_T::n_edge/4][CONFIG_T::n_out],
+  res_T     effects[CONFIG_T::n_edge][CONFIG_T::n_out]
+){
+  //#pragma HLS DATAFLOW
+  data_T effects_1[2*CONFIG_T::n_edge/4][CONFIG_T::n_out];
+  #pragma HLS ARRAY_PARTITION variable=effects_1 complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_out, CONFIG_T::n_edge/4, CONFIG_T::n_edge/4 >(effects_tmp[0], effects_tmp[1], effects_1);
+
+  data_T effects_2[2*CONFIG_T::n_edge/4][CONFIG_T::n_out];
+  #pragma HLS ARRAY_PARTITION variable=effects_2 complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_out, CONFIG_T::n_edge/4, CONFIG_T::n_edge/4 >(effects_tmp[2], effects_tmp[3], effects_2);
+
+  //data_T effects[CONFIG_T::n_edge][CONFIG_T::n_out];
+  //#pragma HLS ARRAY_PARTITION variable=effects complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_out, 2*CONFIG_T::n_edge/4, 2*CONFIG_T::n_edge/4 >(effects_1, effects_2, effects);
+}
+
+template<class data_T, class res_T, typename CONFIG_T>
+void merge_object(
+  data_T     IN[4][CONFIG_T::n_node/4][CONFIG_T::n_features],
+  res_T     OUT[CONFIG_T::n_node][CONFIG_T::n_features]
+){
+  //#pragma HLS DATAFLOW
+  data_T IN_1[2*CONFIG_T::n_node/4][CONFIG_T::n_features];
+  #pragma HLS ARRAY_PARTITION variable=IN_1 complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_features, CONFIG_T::n_node/4, CONFIG_T::n_node/4 >(IN[0], IN[1], IN_1);
+
+  data_T IN_2[2*CONFIG_T::n_node/4][CONFIG_T::n_features];
+  #pragma HLS ARRAY_PARTITION variable=IN_2 complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_features, CONFIG_T::n_node/4, CONFIG_T::n_node/4 >(IN[2], IN[3], IN_2);
+
+  //data_T OUT[CONFIG_T::n_node][CONFIG_T::n_features];
+  //#pragma HLS ARRAY_PARTITION variable=OUT complete dim=0
+  nnet::merge2d<data_T, CONFIG_T::n_features, 2*CONFIG_T::n_node/4, 2*CONFIG_T::n_node/4 >(IN_1, IN_2, OUT);
+}
+
+template<class data_T, class res_T, typename CONFIG_T>
+void aggregation(
+  data_T    aggregation_tmp[4][CONFIG_T::n_node][CONFIG_T::n_out],
+  res_T     aggregation[CONFIG_T::n_node][CONFIG_T::n_out]
+){
+  #pragma HLS DATAFLOW
+  data_T aggregation_1[CONFIG_T::n_node][CONFIG_T::n_out];
+  #pragma HLS ARRAY_PARTITION variable=aggregation_1 complete dim=0
+  nnet::add2d<data_T, data_T, data_T, CONFIG_T::n_node, CONFIG_T::n_out>(aggregation_tmp[0], aggregation_tmp[1], aggregation_1);
+
+  data_T aggregation_2[CONFIG_T::n_node][CONFIG_T::n_out];
+  #pragma HLS ARRAY_PARTITION variable=aggregation_2 complete dim=0
+  nnet::add2d<data_T, data_T, data_T, CONFIG_T::n_node, CONFIG_T::n_out>(aggregation_tmp[2], aggregation_tmp[3], aggregation_2);
+
+  nnet::add2d<data_T, data_T, data_T, CONFIG_T::n_node, CONFIG_T::n_out>(aggregation_1, aggregation_2, aggregation);
+}
+
+
   template<class data_T, class index_T, class res_T, typename CONFIG_T>
     void relational_model(
-			  data_T    edge_terms[CONFIG_T::n_edge][CONFIG_T::e_features],
-			  data_T    node_terms[CONFIG_T::n_node][CONFIG_T::n_features],
-			  index_T   receivers[CONFIG_T::n_edge][1],
-			  index_T   senders[CONFIG_T::n_edge][1],
-			  res_T     effects[CONFIG_T::n_edge][CONFIG_T::n_out],
-			  res_T     aggregation[CONFIG_T::n_node][CONFIG_T::n_out],
-			  typename CONFIG_T::dense_config1::weight_t core_edge_w0[CONFIG_T::e_features*CONFIG_T::n_hidden + 2*CONFIG_T::n_features*CONFIG_T::n_hidden],
-			  typename CONFIG_T::dense_config1::bias_t core_edge_b0[CONFIG_T::n_hidden],
-			  typename CONFIG_T::dense_config2::weight_t core_edge_w1[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
-			  typename CONFIG_T::dense_config2::bias_t core_edge_b1[CONFIG_T::n_hidden],
-			  typename CONFIG_T::dense_config2::weight_t core_edge_w2[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
-                          typename CONFIG_T::dense_config2::bias_t core_edge_b2[CONFIG_T::n_hidden],
-			  typename CONFIG_T::dense_config3::weight_t core_edge_w3[CONFIG_T::n_hidden*CONFIG_T::n_out],
-                          typename CONFIG_T::dense_config3::bias_t core_edge_b3[CONFIG_T::n_out])
+    int ID,
+	int begin,
+	int end,
+	data_T    edge_terms[CONFIG_T::n_edge][CONFIG_T::e_features],
+	data_T    node_terms[CONFIG_T::n_node][CONFIG_T::n_features],
+	index_T   receivers[CONFIG_T::n_edge][1],
+	index_T   senders[CONFIG_T::n_edge][1],
+	res_T     effects[CONFIG_T::n_edge/4][CONFIG_T::n_out],
+	res_T     aggregation[CONFIG_T::n_node][CONFIG_T::n_out],
+	typename CONFIG_T::dense_config1::weight_t core_edge_w0[CONFIG_T::e_features*CONFIG_T::n_hidden + 2*CONFIG_T::n_features*CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config1::bias_t core_edge_b0[CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config2::weight_t core_edge_w1[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config2::bias_t core_edge_b1[CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config2::weight_t core_edge_w2[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config2::bias_t core_edge_b2[CONFIG_T::n_hidden],
+	typename CONFIG_T::dense_config3::weight_t core_edge_w3[CONFIG_T::n_hidden*CONFIG_T::n_out],
+	typename CONFIG_T::dense_config3::bias_t core_edge_b3[CONFIG_T::n_out])
   {
-    // if(CONFIG_T::io_stream){
-    //   #pragma HLS STREAM variable=receivers
-    //   #pragma HLS STREAM variable=senders
-	  
-    // Original Reset (Comment for Design 2,3,4)
-    // for(int i = 0; i < CONFIG_T::n_node; i++){
-    //   for(int j = 0; j < CONFIG_T::n_out; j++){
-	//       aggregation[i][j] = 0;
-    //   }
-    // }
-	  // Flag for New Reset(Add for Design 2,3,4)
-    ap_uint<CONFIG_T::n_node> IsInit = 0;
-	
-	  // Dataflow Pragma for Design 4(Add for Design 4)
-  #pragma HLS DATAFLOW
-	res_T aggregation_tmp[CONFIG_T::n_node][CONFIG_T::n_out];
-	#pragma HLS ARRAY_PARTITION variable=aggregation_tmp complete dim=0
-	
-    IN_relational_loop: for(int i = 0; i < CONFIG_T::n_edge; i++){
-      #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
+
+  ap_uint<CONFIG_T::n_node> IsInit[4] = {0,0,0,0};
+  #pragma HLS ARRAY_PARTITION variable=IsInit complete dim=0
+  #pragma HLS function_instantiate variable=ID
+	#pragma HLS INLINE off
+  //#pragma HLS DATAFLOW
+	res_T aggregation_temp[CONFIG_T::n_node][CONFIG_T::n_out]={0};
+	#pragma HLS ARRAY_PARTITION variable=aggregation_temp complete dim=0
+
+
+    int idx=-1;
+    IN_relational_loop: for(int i = begin; i < end; i++){
+      idx++;
+      if(i>=CONFIG_T::n_edge) continue;
+      #pragma HLS PIPELINE II=CONFIG_T::reuse_factor 
       index_T r = receivers[i][0];
       index_T s = senders[i][0];
       data_T reference_logits[CONFIG_T::e_features + CONFIG_T::n_features];
@@ -238,91 +322,100 @@ namespace nnet {
         data_T effects_logits[CONFIG_T::n_out];
         #pragma HLS ARRAY_PARTITION variable=effects_logits complete dim=0
 	nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config3>(effects2, effects_logits, core_edge_w3, core_edge_b3);
-	nnet::sigmoid<data_T, res_T, typename CONFIG_T::sigmoid_config1>(effects_logits, effects[i]);
+	nnet::sigmoid<data_T, res_T, typename CONFIG_T::sigmoid_config1>(effects_logits, effects[idx]);
       }else{
-	nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config3>(effects2, effects[i], core_edge_w3, core_edge_b3);
+	nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config3>(effects2, effects[idx], core_edge_w3, core_edge_b3);
       }
-	    //Original Aggregation(Comment for Design 2,3,4)
-	// for(int j = 0; j < CONFIG_T::n_out; j++){
-	// 	aggregation[r][j] += effects[i][j];
-	// }
-	    
-	    
-//Original Aggregation Storage (Comment for Design 3,4)
-	// for(int j = 0; j < CONFIG_T::n_out; j++){
-	// 	if(IsInit[r]){
-	// 		aggregation[r][j] += effects[i][j];
-	// 	}
-	// 	else{
-	// 		aggregation[r][j] = effects[i][j];
-	// 		IsInit[r] = 1;
-	// 	}
-	// }
-//Use Local Register to Store Results(Add for Design 3,4)
-		for(int j = 0; j < CONFIG_T::n_out; j++){
-			if(IsInit[r]){
-				aggregation_tmp[r][j] += effects[i][j];
-			}
-			else{
-				aggregation_tmp[r][j] = effects[i][j];
-				IsInit[r] = 1;
-			}
-		}
+
+      for(int j = 0; j < CONFIG_T::n_out; j++){
+        if(IsInit[ID][r]){
+          aggregation_temp[r][j] += effects[idx][j];
+        }
+        else{
+          aggregation_temp[r][j] = effects[idx][j];
+          IsInit[ID][r] = 1;
+        }
+      }
 
 
     }
-// Store Local Result Back to Memory(Add for Design 3,4)
-	for(int i = 0; i<CONFIG_T::n_node; i++){
+
+	WB_loop:for(int i = 0; i<CONFIG_T::n_node; i++){
 		for(int j = 0; j < CONFIG_T::n_out; j++){
       #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
-			aggregation[i][j] = aggregation_tmp[i][j];
+      if(IsInit[ID][i])
+			  aggregation[i][j] = aggregation_temp[i][j];
+      else
+        aggregation[i][j] = 0;
 		}
 	}
-
   }
 
   template<class data_T, class res_T, typename CONFIG_T>
     void object_model(
-		      data_T    node_terms[CONFIG_T::n_node][CONFIG_T::n_features],
-                      data_T    aggregation[CONFIG_T::n_node][CONFIG_T::n_in],
-	              res_T     influence[CONFIG_T::n_node][CONFIG_T::n_out],
-		      typename CONFIG_T::dense_config1::weight_t  core_node_w0[CONFIG_T::n_in*CONFIG_T::n_hidden + CONFIG_T::n_features*CONFIG_T::n_hidden],
-		      typename CONFIG_T::dense_config1::bias_t    core_node_b0[CONFIG_T::n_hidden],
-		      typename CONFIG_T::dense_config2::weight_t  core_node_w1[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
-		      typename CONFIG_T::dense_config2::bias_t    core_node_b1[CONFIG_T::n_hidden],
-		      typename CONFIG_T::dense_config3::weight_t  core_node_w2[CONFIG_T::n_hidden*CONFIG_T::n_out],
-		      typename CONFIG_T::dense_config3::bias_t    core_node_b2[CONFIG_T::n_out])
+		int ID,
+		int begin,
+		int end,
+		data_T    node_terms[CONFIG_T::n_node][CONFIG_T::n_features],
+		data_T    aggregation[CONFIG_T::n_node][CONFIG_T::n_in],
+		res_T     influence[CONFIG_T::n_node/4][CONFIG_T::n_out],
+		typename CONFIG_T::dense_config1::weight_t  core_node_w0[CONFIG_T::n_in*CONFIG_T::n_hidden + CONFIG_T::n_features*CONFIG_T::n_hidden],
+		typename CONFIG_T::dense_config1::bias_t    core_node_b0[CONFIG_T::n_hidden],
+		typename CONFIG_T::dense_config2::weight_t  core_node_w1[CONFIG_T::n_hidden*CONFIG_T::n_hidden],
+		typename CONFIG_T::dense_config2::bias_t    core_node_b1[CONFIG_T::n_hidden],
+		typename CONFIG_T::dense_config3::weight_t  core_node_w2[CONFIG_T::n_hidden*CONFIG_T::n_out],
+		typename CONFIG_T::dense_config3::bias_t    core_node_b2[CONFIG_T::n_out])
   {
-    
-    IN_object_loop: for(int i = 0; i < CONFIG_T::n_node; i++){
-      #pragma HLS PIPELINE II=CONFIG_T::reuse_factor
+  	#pragma HLS function_instantiate variable=ID
+	#pragma HLS INLINE off
+	res_T     influence_tmp[CONFIG_T::n_node][CONFIG_T::n_out];
+  //#pragma HLS DATAFLOW
+	#pragma HLS ARRAY_PARTITION variable=influence_tmp complete dim=0
+  #pragma HLS ARRAY_PARTITION variable=influence complete dim=0
+	int idx=-1;
+    IN_object_loop: for(int i = begin; i < end; i++){
+      #pragma HLS PIPELINE II=CONFIG_T::reuse_factor 
+		  idx++;
+		  if(i>=CONFIG_T::n_node) continue;
       data_T aggregated[CONFIG_T::n_in + CONFIG_T::n_features];
       #pragma HLS ARRAY_PARTITION variable=aggregated complete dim=0
       nnet::merge<data_T, CONFIG_T::n_in, CONFIG_T::n_features>(aggregation[i], node_terms[i], aggregated);
 
       data_T influence0_logits[CONFIG_T::n_hidden];
       #pragma HLS ARRAY_PARTITION variable=influence0_logits complete dim=0
+
       nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config1>(aggregated, influence0_logits, core_node_w0, core_node_b0);
       data_T influence0[CONFIG_T::n_hidden];
       #pragma HLS ARRAY_PARTITION variable=influence0 complete dim=0
+
       nnet::relu<data_T, data_T, typename CONFIG_T::relu_config1>(influence0_logits, influence0);
 
       data_T influence1_logits[CONFIG_T::n_hidden];
       #pragma HLS ARRAY_PARTITION variable=influence1_logits complete dim=0
+
       nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config2>(influence0, influence1_logits, core_node_w1, core_node_b1);
       data_T influence1[CONFIG_T::n_hidden];
       #pragma HLS ARRAY_PARTITION variable=influence1 complete dim=0
+
       nnet::relu<data_T, data_T, typename CONFIG_T::relu_config1>(influence1_logits, influence1);
 
       if(CONFIG_T::activate_final){
         data_T influence_logits[CONFIG_T::n_out];
         #pragma HLS ARRAY_PARTITION variable=influence_logits complete dim=0
+
         nnet::dense_large_basic<data_T, data_T, typename CONFIG_T::dense_config3>(influence1, influence_logits, core_node_w2, core_node_b2);
-        nnet::relu<data_T, res_T, typename CONFIG_T::relu_config2>(influence_logits, influence[i]);
+        nnet::relu<data_T, res_T, typename CONFIG_T::relu_config2>(influence_logits, influence[idx]);
       }else{
-        nnet::dense_large_basic<data_T, res_T, typename CONFIG_T::dense_config3>(influence1, influence[i], core_node_w2, core_node_b2);
+        nnet::dense_large_basic<data_T, res_T, typename CONFIG_T::dense_config3>(influence1, influence[idx], core_node_w2, core_node_b2);
       }
     }
+	// WB_loop:for(int i = 0; i < CONFIG_T::n_node; i++){
+	// 	for(int j = 0; j < CONFIG_T::n_out; j++){
+	// 		#pragma HLS PIPELINE II=CONFIG_T::reuse_factor
+	// 		influence[i][j] = influence_tmp[i][j];
+	// 	}
+	// }
+      
   }
 	/*
   template<class data_T, class index_T, class res_T, typename CONFIG_T>
