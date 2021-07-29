@@ -53,6 +53,20 @@ void add(
     }
 }
 
+template<class input1_T, class input2_T, class res_T, int n_elem ,int NSHARED>
+void add2d(
+    input1_T data1[n_elem][NSHARED],
+	input2_T data2[n_elem][NSHARED],
+    res_T res[n_elem][NSHARED])
+{
+#pragma HLS PIPELINE 
+    for(int jj=0; jj<NSHARED; jj++){
+        for (int ii=0; ii<n_elem; ii++) {
+            res[ii][jj] = data1[ii][jj] + data2[ii][jj];
+        }
+    }
+}
+
 template<class input1_T, class input2_T, class res_T, typename CONFIG_T>
 void subtract(
     input1_T data1[CONFIG_T::n_elem],

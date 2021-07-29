@@ -42,6 +42,7 @@ typedef ap_fixed<32,10> accum_t_def;
 	      data_T data2[NIN2],
 	      data_T res[NIN1+NIN2])
  {
+   #pragma HLS PIPELINE // New Addition to reduce latency
    for(int ii=0; ii<NIN1; ii++){
      res[ii] = data1[ii];
    }
@@ -53,18 +54,19 @@ typedef ap_fixed<32,10> accum_t_def;
 // GNN Addition
  template<class data_T, int NSHARED, int NIN1, int NIN2>
    void merge2d(
-		data_T data1[NSHARED][NIN1],
-		data_T data2[NSHARED][NIN2],
-		data_T res[NSHARED][NIN1+NIN2])
+		data_T data1[NIN1][NSHARED],
+		data_T data2[NIN2][NSHARED],
+		data_T res[NIN1+NIN2][NSHARED])
  {
-	#pragma HLS PIPELINE // New Addition to reduce latency
-   for(int ii=0; ii<NSHARED; ii++){
-	 //#pragma HLS PIPELINE // New Addition to reduce latency
-     for(int jj=0; jj<NIN1; jj++){
+  #pragma HLS ARRAY_PARTITION variable=res complete dim=0
+	//#pragma HLS PIPELINE // New Addition to reduce latency
+   for(int jj=0; jj<NSHARED; jj++){
+	 #pragma HLS PIPELINE // New Addition to reduce latency
+     for(int ii=0; ii<NIN1; ii++){
        res[ii][jj] = data1[ii][jj];
      }
-     for(int jj=0; jj<NIN2; jj++){
-       res[ii][NIN1+jj] = data2[ii][jj];
+     for(int ii=0; ii<NIN2; ii++){
+       res[NIN1+ii][jj] = data2[ii][jj];
      }
    }
  }
